@@ -1,0 +1,75 @@
+rules_version = '2';
+
+// Replace YOUR_EMAIL@gmail.com with the exact email of the admin user you created in Firebase Authentication,
+// then paste this whole file into Firestore Database > Rules > Publish.
+// Only that account can add products, read everyone's orders, and reply to customers.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isAdmin()  { return signedIn() && request.auth.token.get('email', '') == 'YOUR_EMAIL@gmail.com'; }
+    function mine(uidField) { return signedIn() && uidField == request.auth.uid; }
+
+    // Shop catalog + shop settings: everyone can read, only you can change.
+    match /products/{id} { allow read: if true; allow write: if isAdmin(); }
+    match /settings/{id} { allow read: if true; allow write: if isAdmin(); }
+
+    // Orders: a customer can create their own (unpaid, new) and read their own. Only you can change them.
+    match /orders/{id} {
+      allow create: if isAdmin() || (signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'new'
+        && request.resource.data.payStatus == 'unpaid'
+        && request.resource.data.total is number
+        && request.resource.data.total > 0);
+      allow read: if isAdmin() || mine(resource.data.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    // Custom requests: customer creates + reads their own; may only touch status/updatedAt/lastFrom afterwards.
+    match /requests/{id} {
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.status == 'new';
+      allow read: if isAdmin() || mine(resource.data.ownerUid);
+      allow update: if isAdmin()
+        || (mine(resource.data.ownerUid)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'lastFrom'])
+            && request.resource.data.status in ['approved', resource.data.status]);
+      allow delete: if isAdmin();
+    }
+
+    // Chat messages inside a custom request.
+    match /messages/{id} {
+      allow create: if isAdmin()
+        || (signedIn() && request.resource.data.ownerUid == request.auth.uid && request.resource.data.from == 'customer');
+      allow read: if isAdmin() || mine(resource.data.ownerUid);
+      allow update, delete: if isAdmin();
+    }
+
+    // Notification subscriptions (one doc per phone). Only you can read the list.
+    match /subscribers/{token} {
+      allow create, update: if signedIn() && request.resource.data.uid == request.auth.uid
+        && request.resource.data.role in ['shop', 'admin']
+        && (request.resource.data.role == 'shop' || isAdmin());
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+      allow read: if isAdmin();
+    }
+
+    // Audience stats: one small record per customer device. Customers only touch their own; only you can read all.
+    match /devices/{id} {
+      allow read: if isAdmin() || (signedIn() && id == request.auth.uid);
+      allow create: if signedIn() && id == request.auth.uid
+        && request.resource.data.keys().hasOnly(['firstSeen', 'lastSeen', 'visits', 'installed', 'installedAt', 'platform', 'lang'])
+        && request.resource.data.visits == 1;
+      allow update: if signedIn() && id == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastSeen', 'visits', 'installed', 'installedAt', 'platform', 'lang'])
+        && request.resource.data.visits in [resource.data.visits, resource.data.visits + 1];
+      allow delete: if isAdmin();
+    }
+
+    // Alerts you send. Writing one triggers a push to all customer phones.
+    match /broadcasts/{id} { allow create: if isAdmin(); allow read: if isAdmin(); }
+  }
+}
