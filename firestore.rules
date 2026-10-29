@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// Replace YOUR_EMAIL@gmail.com with the exact email of the admin user you created in Firebase Authentication,
+// Replace siarakasgeorge@gmail.com with the exact email of the admin user you created in Firebase Authentication,
 // then paste this whole file into Firestore Database > Rules > Publish.
 // Only that account can add products, read everyone's orders, and reply to customers.
 
@@ -8,7 +8,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     function signedIn() { return request.auth != null; }
-    function isAdmin()  { return signedIn() && request.auth.token.get('email', '') == 'YOUR_EMAIL@gmail.com'; }
+    function isAdmin()  { return signedIn() && request.auth.token.get('email', '') == 'siarakasgeorge@gmail.com'; }
     function mine(uidField) { return signedIn() && uidField == request.auth.uid; }
 
     // Shop catalog + shop settings: everyone can read, only you can change.
